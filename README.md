@@ -1,28 +1,39 @@
-# NQ Main Algo
+# Quant Lab Strategy Pipeline
 
-This repository contains the NQ Main Algorithm strategies.
+## Overview
+This repository contains the `StrategyPipeline` core logic and backtesting engine for the Quant Lab. It is designed to be portable and reproducible.
 
-## Included Strategies
+## Setup
+To set up the environment on a new machine (Windows):
 
-### Triple NQ Variant
-File: `Triple_NQ_Variant.pine`
+1.  **Run Setup Script**: 
+    Double-click `setup_project.bat` or run it from the terminal:
+    ```powershell
+    .\setup_project.bat
+    ```
+    This will:
+    *   Check for Python.
+    *   Create a virtual environment (`.venv`).
+    *   Install dependencies from `requirements.txt`.
+    *   Create necessary data folders (`data/`, `logs/`, etc.).
 
-A composite strategy combining:
-- **Trend NQ**: Trend following with momentum, ADX, and VWAP filters.
-- **Long ORB**: Opening Range Breakout (Long).
-- **Simple Short**: RSI/VIX based shorting logic.
-- **Short ORB**: Opening Range Breakout (Short).
+2.  **Configuration**:
+    *   Rename `.env.example` to `.env`.
+    *   Add your API keys (e.g., Polygon.io) to `.env`.
 
-Features:
-- **Tiered Scaling**: Adjusts position size based on Volatility (ATR), VWAP Proximity, or Momentum.
-- **Risk Management**: Adaptive drawdown control (Caution, Defense, Survival tiers).
-- **Limit Entry**: Optional limit order entry with offset tolerance.
+## Usage
+Activate the environment:
+```powershell
+.venv\Scripts\activate
+```
 
-### ES Trend
-File: `ES Trend.txt`
-Existing strategy for ES Trend following.
+Run the pipeline:
+```powershell
+python run_experiments.py
+```
 
-## Structure
-- `Triple_NQ_Variant.pine`: Main Pine Script strategy.
-- `StrategyPipeline/`: Python backtesting framework and pipeline tools.
-- `data/`: Market data (ignored by git).
+## Directory Structure
+*   `StrategyPipeline/`: Core source code.
+*   `data/`: Local data storage (ignored by git).
+*   `logs/`: Execution logs (ignored by git).
+*   `outputs/`: Backtest artifacts (ignored by git).
