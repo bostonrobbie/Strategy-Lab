@@ -1,0 +1,479 @@
+//@version=5
+strategy("Triple NQ Variant [Trend + ORB + Short] % Scaling", overlay=true, initial_capital=100000, default_qty_type=strategy.percent_of_equity, default_qty_value=33, currency=currency.USD, commission_type=strategy.commission.cash_per_contract, commission_value=2.05)
+// ==========================================
+// 1. SCALING, RISK & CONSTRAINTS (Top of Settings)
+// ==========================================
+grpPct = "1. Scaling Percentages"
+useLimitEntries = input.bool(true, "Use Limit Entries (Fill at Close)?", group=grpPct, tooltip="If true, uses Limit Orders at Close price.")
+limitOffsetPts  = input.int(4,     "Limit Offset Tolerance (Pts)", minval=0, group=grpPct, tooltip="Willingness to pay up to X points slippage to get filled (Marketable Limit).")
+useLeverage = input.bool(true, "Use Leveraged (% Equity) Scaling?", group=grpPct)
+// Tier 1 = 33%
+pct_t1 = input.float(33.0, "Tier 1 (% Equity)", minval=1.0, maxval=100.0, step=1.0, group=grpPct)
+// Tier 2 = 66%
+pct_t2 = input.float(66.0, "Tier 2 (% Equity)", minval=1.0, maxval=100.0, step=1.0, group=grpPct)
+// Tier 3 = 100%
+pct_t3 = input.float(100.0, "Tier 3 (% Equity)", minval=1.0, maxval=100.0, step=1.0, group=grpPct)
+
+grpRealistic = "2. Realistic Constraints"
+maxContracts = input.int(50, "Max Contracts Limit", minval=1, group=grpRealistic)
+useEquityCap = input.bool(false, "Cap Equity used for Scaling?", group=grpRealistic)
+equityCapVal = input.float(1000000, "Max Equity to Compound ($)", group=grpRealistic)
+
+grpRisk = "3. Enhanced Risk Management"
+useDdControl   = input.bool(true, "Enable Drawdown Control Logic?", group=grpRisk)
+// Tier A: Caution
+ddLimitA       = input.float(5.0,  "Tier 1 (Caution) DD %", group=grpRisk)
+ddFactorA      = input.float(0.75, "Tier 1 Reduction (0.75)", group=grpRisk)
+// Tier B: Defense
+ddLimitB       = input.float(12.0, "Tier 2 (Defense) DD %", group=grpRisk)
+ddFactorB      = input.float(0.50, "Tier 2 Reduction (0.50)", group=grpRisk)
+// Tier C: Survival
+ddLimitC       = input.float(20.0, "Tier 3 (Survival) DD %", group=grpRisk)
+ddFactorC      = input.float(0.25, "Tier 3 Reduction (0.25)", group=grpRisk)
+
+// Track High Water Mark
+var float max_equity = 0.0
+// Update on every bar to catch intraday equity peaks
+if strategy.equity > max_equity
+    max_equity := strategy.equity
+
+// Calculate Current Drawdown
+float current_dd_pct = 0.0
+if max_equity > 0
+    current_dd_pct := ((max_equity - strategy.equity) / max_equity) * 100
+
+// ==========================================
+// 4. DATE & GLOBAL SETTINGS
+// ==========================================
+grpGlobal = "4. Global Strategy Settings"
+startTime = input.time(timestamp("01 Jan 2011 00:00 +0000"), "Backtest Start", group=grpGlobal)
+endTime = input.time(timestamp("01 Jan 2030 00:00 +0000"), "Backtest End", group=grpGlobal)
+// Global Settings override
+limitOneTradePerDay = input.bool(false, "Limit to 1 Trade Per Day?", group=grpGlobal)
+inDate = time >= startTime and time <= endTime
+
+// ==========================================
+// 5. LONG STRATEGY 1: TREND NQ
+// ==========================================
+grpLong = "Strat 1: Trend NQ"
+entryHour      = input.int(9,    "Entry Hour (NY)",         minval=0, maxval=23, group=grpLong)
+entryMin       = input.int(40,   "Entry Minute (NY)",       minval=0, maxval=59, group=grpLong)
+trendExitHour  = input.int(16,   "Forced Exit Hour (NY)",   minval=0, maxval=23, group=grpLong)
+trendExitMin   = input.int(45,   "Forced Exit Minute (NY)", minval=0, maxval=59, group=grpLong)
+// Filters
+useMom         = input.bool(true,  "Use Momentum Filter?", group=grpLong)
+momLen         = input.int(250,    "Momentum Lookback", minval=1, group=grpLong)
+momThreshLong  = input.float(1.0,  "Momentum Thresh",  step=0.1, group=grpLong)
+useLongAdx     = input.bool(false, "Use ADX Filter?", group=grpLong)
+adxLen         = input.int(250,    "ADX Length", minval=1, group=grpLong)
+adxThreshLong  = input.float(1.0,  "ADX Threshold", step=0.1, group=grpLong)
+useDistATR     = input.bool(false,  "Cap Risk (Price-VWAP) in ATR?", group=grpLong)
+maxDistATR     = input.float(1.25,  "Max Dist (ATR Multiples)", group=grpLong, step=0.05)
+// Scaling (Trend NQ)
+l_useScale     = input.bool(true,   "Enable Scaling?", group=grpLong)
+l_scaleMethod  = input.string("Low Volatility", "Scaling Method", options=["Momentum", "VWAP Proximity", "Low Volatility"], group=grpLong)
+l_vol_t3       = input.float(0.05, "Vol Tier 3 (ATR%) <", group=grpLong)
+l_vol_t2       = input.float(0.5,  "Vol Tier 2 (ATR%) <", group=grpLong)
+l_mom_t3       = input.float(2.5,  "Mom Tier 3 (Mult)", group=grpLong)
+l_mom_t2       = input.float(1.5,  "Mom Tier 2 (Mult)", group=grpLong)
+l_vwap_t3      = input.float(0.3,  "VWAP Tier 3 (Dist ATR) <", group=grpLong)
+l_vwap_t2      = input.float(0.6,  "VWAP Tier 2 (Dist ATR) <", group=grpLong)
+
+// ==========================================
+// 3. LONG STRATEGY 2: LONG ORB
+// ==========================================
+grpORB = "Strat 2: Long ORB"
+orbStartHour = input.int(9,  "Range Start Hour", group=grpORB) // 9:30
+orbStartMin  = input.int(30, "Range Start Min",  group=grpORB) 
+orbEndHour   = input.int(9,  "Range End Hour",   group=grpORB)   // 9:45
+orbEndMin    = input.int(45, "Range End Min",    group=grpORB)
+// Stop Loss Options
+slTypeOrb    = input.string("Range Low", "ORB Stop Mode", options=["Fixed %", "Range Low"], group=grpORB)
+fixedSLOrb   = input.float(0.75, "ORB Fixed SL %", step=0.05, group=grpORB)
+// Filters
+useGreenRange = input.bool(true, "Require Green Range (Close > Open)?", group=grpORB)
+
+// Scaling (ORB)
+o_useScale     = input.bool(true,   "Enable Scaling?", group=grpORB)
+o_scaleMethod  = input.string("Low Volatility", "Scaling Method", options=["Momentum", "VWAP Proximity", "Low Volatility"], group=grpORB)
+o_vol_t3       = input.float(0.05, "Vol Tier 3 (ATR%) <", group=grpORB)
+o_vol_t2       = input.float(0.10, "Vol Tier 2 (ATR%) <", group=grpORB)
+o_mom_t3       = input.float(10.0, "Mom Tier 3 (Mult of Base)", group=grpORB) 
+o_mom_t2       = input.float(5.0,  "Mom Tier 2 (Mult of Base)", group=grpORB)
+o_vwap_t3      = input.float(0.3,  "VWAP Tier 3 (Dist ATR) <", group=grpORB)
+o_vwap_t2      = input.float(0.6,  "VWAP Tier 2 (Dist ATR) <", group=grpORB)
+
+// ==========================================
+// 4. SHORT STRATEGY: SIMPLE SHORT (Primary)
+// ==========================================
+grpShort = "Strat 3: Simple Short (Primary)"
+shortStartHour = input.int(9, "Short Window Start Hour", group=grpShort)
+shortStartMin  = input.int(40, "Short Window Start Min", group=grpShort)
+shortEndHour   = input.int(15, "Short Window End Hour", group=grpShort)
+shortEndMin    = input.int(10, "Short Window End Min", group=grpShort) 
+rsi_len        = input.int(21, "RSI Length", group=grpShort)
+rsi_thresh     = input.int(25, "RSI Threshold (< X)", group=grpShort)
+sl_pct_short   = input.float(0.01, "Stop Loss % (1% Opt)", step=0.01, group=grpShort)
+use_vix        = input.bool(true,  "Use VIX Filter?", group=grpShort)
+vix_max        = input.float(20.0, "Max VIX Allowed", group=grpShort)
+// Scaling (Short)
+s_useScale     = input.bool(true,   "Enable Scaling?", group=grpShort)
+s_scaleMethod  = input.string("Low Volatility", "Scaling Method", options=["Momentum", "VWAP Proximity", "Low Volatility"], group=grpShort)
+s_vol_t3       = input.float(0.05, "Vol Tier 3 (ATR%) <", group=grpShort)
+s_vol_t2       = input.float(0.5,  "Vol Tier 2 (ATR%) <", group=grpShort)
+s_mom_t3       = input.float(15,   "Mom Tier 3 (RSI < X)", group=grpShort) 
+s_mom_t2       = input.float(20,   "Mom Tier 2 (RSI < X)", group=grpShort)
+s_vwap_t3      = input.float(0.3,  "VWAP Tier 3 (Dist ATR) <", group=grpShort) 
+s_vwap_t2      = input.float(0.6,  "VWAP Tier 2 (Dist ATR) <", group=grpShort)
+
+// ==========================================
+// 5. SHORT STRATEGY: SHORT ORB (Secondary)
+// ==========================================
+grpShortOrb   = "Strat 4: Short ORB (Secondary)"
+// Note: We use "so_" prefix to distinguish from Long ORB Variables
+so_orbStartHour = input.int(9,  "Range Start Hour", group=grpShortOrb) // 9:30
+so_orbStartMin  = input.int(30, "Range Start Min",  group=grpShortOrb) 
+so_orbEndHour   = input.int(9,  "Range End Hour",   group=grpShortOrb)   // 9:45
+so_orbEndMin    = input.int(45, "Range End Min",    group=grpShortOrb)
+// Stop Loss Options
+so_slType       = input.string("Fixed %", "Stop Loss Mode", options=["Fixed %", "Range High"], group=grpShortOrb)
+so_fixedSL      = input.float(0.5,  "Fixed SL % (0.5% Opt)", step=0.05, group=grpShortOrb)
+// Filters
+so_useVwapFilter = input.bool(true, "Require Close < VWAP?", group=grpShortOrb)
+so_useRedRange   = input.bool(true, "Require Red Range (Close < Open)?", group=grpShortOrb)
+// Scaling (Short ORB)
+so_useScale     = input.bool(true,   "Enable Scaling?", group=grpShortOrb)
+so_scaleMethod  = input.string("Momentum", "Scaling Method", options=["Momentum", "VWAP Proximity", "Low Volatility"], group=grpShortOrb)
+so_vol_t3       = input.float(0.05, "Vol Tier 3 (ATR%) <", group=grpShortOrb)
+so_vol_t2       = input.float(0.10, "Vol Tier 2 (ATR%) <", group=grpShortOrb)
+so_mom_t3       = input.float(10,   "Mom Tier 3 (RSI < X)", group=grpShortOrb) 
+so_mom_t2       = input.float(25,   "Mom Tier 2 (RSI < X)", group=grpShortOrb)
+so_vwap_t3      = input.float(0.3,  "VWAP Tier 3 (Dist ATR) <", group=grpShortOrb)
+so_vwap_t2      = input.float(0.6,  "VWAP Tier 2 (Dist ATR) <", group=grpShortOrb)
+
+// ==========================================
+// 6. INDICATORS & COMMON LOGIC
+// ==========================================
+// Time
+t_val = hour(time, "America/New_York") * 100 + minute(time, "America/New_York")
+nyHour = hour(time, "America/New_York")
+nyMin = minute(time, "America/New_York")
+isNewDay = timeframe.change("1D")
+
+// Trading Indicators
+vwapVal = ta.vwap(close, isNewDay)
+atrVal = ta.atr(14)
+rsiVal = ta.rsi(close, rsi_len)
+momVal = ta.mom(close, momLen)
+[plusDI, minusDI, adxVal] = ta.dmi(adxLen, adxLen)
+vixVal = request.security("CBOE:VIX", "D", close)
+
+// Metrics for Logic/Scaling
+distToVWAP = math.abs(close - vwapVal)
+atrPct = (atrVal / close) * 100
+distInATR = distToVWAP / atrVal
+
+// ==========================================
+// 7. SCALING CALCULATORS (TIER ONLY)
+// ==========================================
+// Returns 1, 2, or 3 representing the Tier
+calcTier(use, method, vol_t3, vol_t2, mom_t3, mom_t2, vwap_t3, vwap_t2, isShort) =>
+    int t = 1
+    if use
+        if method == "Low Volatility"
+            if atrPct < vol_t3
+                t := 3
+            else if atrPct < vol_t2
+                t := 2
+        else if method == "VWAP Proximity"
+            if distInATR < vwap_t3
+                t := 3
+            else if distInATR < vwap_t2
+                t := 2
+        else if method == "Momentum"
+            if isShort // Short uses RSI
+                if rsiVal < mom_t3
+                    t := 3
+                else if rsiVal < mom_t2
+                    t := 2
+            else // Long uses Mom Val
+                float baseMom = 10.0 
+                if math.abs(momVal) >= baseMom * mom_t3
+                    t := 3
+                else if math.abs(momVal) >= baseMom * mom_t2
+                    t := 2
+    t
+
+// Calculate Tier for each
+tierLongTrend  = calcTier(l_useScale, l_scaleMethod, l_vol_t3, l_vol_t2, l_mom_t3, l_mom_t2, l_vwap_t3, l_vwap_t2, false)
+tierLongORB    = calcTier(o_useScale, o_scaleMethod, o_vol_t3, o_vol_t2, o_mom_t3, o_mom_t2, o_vwap_t3, o_vwap_t2, false)
+tierShort      = calcTier(s_useScale, s_scaleMethod, s_vol_t3, s_vol_t2, s_mom_t3, s_mom_t2, s_vwap_t3, s_vwap_t2, true)
+tierShortOrb   = calcTier(so_useScale, so_scaleMethod, so_vol_t3, so_vol_t2, so_mom_t3, so_mom_t2, so_vwap_t3, so_vwap_t2, true)
+
+calcQtyFromTier(tier) =>
+    float q = 0.0
+    
+    // MODE SELECTION
+    if useLeverage
+        // LEVERAGED MODE (% Equity)
+        float pct = pct_t1 // Default
+        if tier == 2
+            pct := pct_t2
+        else if tier >= 3
+            pct := pct_t3
+        
+        // Determine Equity to use
+        float usedEquity = strategy.equity
+        if useEquityCap and usedEquity > equityCapVal
+            usedEquity := equityCapVal
+        
+        // Calculate contracts based on % of Equity
+        // Qty = (UsedEquity * pct/100) / Close Price
+        q := math.floor((usedEquity * (pct / 100.0)) / close)
+    else
+        // FIXED CONTRACT MODE (1, 2, 3)
+        // Similar to original strategy but explicit here
+        if tier == 1
+            q := 1
+        else if tier == 2
+            q := 2
+        else if tier >= 3
+            q := 3
+    
+    // Apply Max Contracts Limit
+    if q > maxContracts
+        q := maxContracts
+    
+    // Apply Enhanced Adaptive Drawdown Control
+    if useDdControl
+        if current_dd_pct > ddLimitC
+            // Survival Mode
+            q := math.floor(q * ddFactorC)
+        else if current_dd_pct > ddLimitB
+            // Defense Mode
+            q := math.floor(q * ddFactorB)
+        else if current_dd_pct > ddLimitA
+            // Caution Mode
+            q := math.floor(q * ddFactorA)
+        
+        // Ensure at least 1 contract unless logic implies 0 is acceptable
+        // If we are leveraging and account is tiny, 0 is possible.
+        // If we are strictly Fixed mode, we expect >= 1.
+        // Logic: If q was reduced to 0 by factors, bump to 1 if we have ANY money.
+        // But for safety, let's just check if q became 0 from > 0 start.
+        if q < 1
+            // Check if we originally had enough for 1
+            float baseQty = useLeverage ? math.floor((strategy.equity * 0.33) / close) : 1.0
+            if baseQty >= 1
+                q := 1
+    q
+
+qtyLongTrend = calcQtyFromTier(tierLongTrend)
+qtyLongORB   = calcQtyFromTier(tierLongORB)
+qtyShort     = calcQtyFromTier(tierShort)
+qtyShortOrb  = calcQtyFromTier(tierShortOrb)
+
+// ==========================================
+// 8. STRATEGY LOGIC
+// ==========================================
+// Global Settings override
+
+
+// Global Tracker
+var int tradesToday = 0
+if isNewDay
+    tradesToday := 0
+
+// Track trades
+if strategy.position_size != 0 and strategy.position_size[1] == 0
+    tradesToday += 1
+
+// Can Trade? 
+// 1. Must be in Date Range
+// 2. Must be Flat (No Pyramiding)
+// 3. Daily Limit Check (Optional)
+canTrade = inDate and strategy.position_size == 0 and (not limitOneTradePerDay or tradesToday == 0)
+
+// --- A. TREND NQ ---
+isEntryTimeLong = (nyHour == entryHour and nyMin == entryMin)
+longRiskOK = not useDistATR or (distToVWAP <= maxDistATR * atrVal)
+longMomOK = not useMom or (momVal > momThreshLong)
+longAdxOK = not useLongAdx or (adxVal > adxThreshLong and plusDI > minusDI)
+trendLongCond = canTrade and isEntryTimeLong and (close > vwapVal) and longRiskOK and longMomOK and longAdxOK
+
+// --- B. LONG ORB ---
+// Logic: Range High/Low
+var float orbRangeHigh = 0.0
+var float orbRangeLow = 0.0
+var float orbRangeOpen = 0.0
+var float orbRangeClose = 0.0
+var bool orbRangeFormed = false
+if isNewDay
+    orbRangeHigh := 0.0
+    orbRangeLow := 999999.0
+    orbRangeOpen := 0.0
+    orbRangeClose := 0.0
+    orbRangeFormed := false
+
+orbStart = orbStartHour * 100 + orbStartMin
+orbEnd = orbEndHour * 100 + orbEndMin
+
+// Capture Range
+if t_val == orbStart
+    orbRangeOpen := open
+if t_val >= orbStart and t_val < orbEnd
+    if high > orbRangeHigh
+        orbRangeHigh := high
+    if low < orbRangeLow
+        orbRangeLow := low
+// Capture Close
+if t_val == orbEnd
+    orbRangeClose := close[1]
+
+if t_val >= orbEnd and not orbRangeFormed and orbRangeHigh > 0
+    orbRangeFormed := true
+
+orbBreakout = orbRangeFormed and close > orbRangeHigh
+orbGreenRangeOK = not useGreenRange or (orbRangeClose > orbRangeOpen)
+orbTimeOK = t_val < 1530
+
+orbLongCond = canTrade and orbBreakout and (close > vwapVal) and orbTimeOK and orbGreenRangeOK
+
+// --- C. SIMPLE SHORT (Primary) ---
+shortStartVal = shortStartHour * 100 + shortStartMin
+shortEndVal = shortEndHour * 100 + shortEndMin
+// Existing Simple Short Conditions
+inShortLogic = t_val >= shortStartVal and t_val < shortEndVal and close < vwapVal and rsiVal < rsi_thresh and (not use_vix or vixVal < vix_max)
+simpleShortCond = canTrade and inShortLogic
+
+// --- D. SHORT ORB (Secondary) ---
+// Logic: Range High/Low specific to Short ORB
+// Note: We create separate variables just in case the time window differs from Long ORB
+var float so_rangeHigh = 0.0
+var float so_rangeLow = 0.0
+var float so_rangeOpen = 0.0
+var float so_rangeClose = 0.0
+var bool so_rangeFormed = false
+
+if isNewDay
+    so_rangeHigh := 0.0
+    so_rangeLow := 999999.0
+    so_rangeOpen := 0.0
+    so_rangeClose := 0.0
+    so_rangeFormed := false
+
+// Define Range
+so_orbStart = so_orbStartHour * 100 + so_orbStartMin
+so_orbEnd = so_orbEndHour * 100 + so_orbEndMin
+
+// Capture
+if t_val == so_orbStart
+    so_rangeOpen := open // Capture open of first candle
+if t_val >= so_orbStart and t_val < so_orbEnd
+    if high > so_rangeHigh
+        so_rangeHigh := high
+    if low < so_rangeLow
+        so_rangeLow := low
+// Capture Close of Range
+if t_val == so_orbEnd
+    so_rangeClose := close[1]
+
+// Mark Formed
+if t_val >= so_orbEnd and not so_rangeFormed and so_rangeHigh > 0
+    so_rangeFormed := true
+
+// Entry Conditions for Short ORB
+// 1. Breakout Check
+isShortOrbBreakout = so_rangeFormed and close < so_rangeLow
+// 2. Filters
+so_vwapOK = not so_useVwapFilter or (close < vwapVal)
+so_redRangeOK = not so_useRedRange or (so_rangeClose < so_rangeOpen)
+so_timeOK = t_val < 1530
+
+// 3. FINAL CONDITION
+// MUST be canTrade
+// MUST meet Breakout and Filters
+// MUST NOT conflict with Simple Short (Simple Short takes priority)
+shortOrbCond = canTrade and isShortOrbBreakout and so_vwapOK and so_redRangeOK and so_timeOK and (not simpleShortCond)
+
+
+// ==========================================
+// 9. EXECUTION
+// ==========================================
+// NOTE: We now use calculated 'qty' from % of equity logic
+// EXECUTION MODE: Limit or Market
+// Limit Offset: "I will pay up to X points slippage to get filled"
+float limitPriceLong = useLimitEntries ? (close + limitOffsetPts) : na
+float limitPriceShort = useLimitEntries ? (close - limitOffsetPts) : na
+
+if trendLongCond
+    strategy.entry("Long Trend", strategy.long, qty=qtyLongTrend, limit=limitPriceLong)
+if orbLongCond
+    strategy.entry("Long ORB", strategy.long, qty=qtyLongORB, limit=limitPriceLong)
+
+if simpleShortCond
+    strategy.entry("Short", strategy.short, qty=qtyShort, limit=limitPriceShort)
+else if shortOrbCond // Else If ensures priority logic physically as well, though 'canTrade' handles 1 per day
+    strategy.entry("Short ORB", strategy.short, qty=qtyShortOrb, limit=limitPriceShort)
+
+// ==========================================
+// 10. EXITS
+// ==========================================
+// Trend Exits
+if strategy.opentrades.entry_id(strategy.opentrades - 1) == "Long Trend"
+    if close < vwapVal
+        strategy.close("Long Trend", comment="Trend Break")
+
+// Long ORB Exits
+if strategy.opentrades.entry_id(strategy.opentrades - 1) == "Long ORB"
+    float slP = 0.0
+    float entryP = strategy.opentrades.entry_price(strategy.opentrades - 1)
+    if slTypeOrb == "Fixed %"
+        slP := entryP * (1 - fixedSLOrb/100)
+    else
+        slP := orbRangeLow < entryP ? orbRangeLow : entryP * 0.99
+    strategy.exit("Exit ORB", "Long ORB", stop=slP)
+
+// Simple Short Exits
+if strategy.opentrades.entry_id(strategy.opentrades - 1) == "Short"
+    float entryP = strategy.opentrades.entry_price(strategy.opentrades - 1)
+    strategy.exit("Exit Short", "Short", stop=entryP * (1 + sl_pct_short))
+
+// Short ORB Exits (NEW)
+if strategy.opentrades.entry_id(strategy.opentrades - 1) == "Short ORB"
+    float slPrice = 0.0
+    float entryP = strategy.opentrades.entry_price(strategy.opentrades - 1)
+    if so_slType == "Fixed %"
+        slPrice := entryP * (1 + so_fixedSL/100)
+    else
+        // Range High Stop
+        slPrice := so_rangeHigh > entryP ? so_rangeHigh : entryP * 1.01
+    strategy.exit("Exit Short ORB", "Short ORB", stop=slPrice)
+
+
+// EOD (Common)
+isExitTime = (nyHour == trendExitHour and nyMin == trendExitMin)
+if isExitTime
+    strategy.close_all(comment="EOD")
+
+if strategy.opentrades.entry_id(strategy.opentrades - 1) == "Short ORB" and t_val >= 1555
+    strategy.close("Short ORB", comment="EOD ShortOrb")
+
+
+// ==========================================
+// 11. PLOTS
+// ==========================================
+plot(vwapVal, "VWAP", color.orange, 2)
+// Long ORB
+plot(orbRangeFormed ? orbRangeHigh : na, "L-ORB High", color.green, 1, plot.style_linebr)
+plot(orbRangeFormed ? orbRangeLow : na, "L-ORB Low", color.red, 1, plot.style_linebr)
+// Short ORB
+plot(so_rangeFormed ? so_rangeHigh : na, "S-ORB High", color.maroon, 1, plot.style_linebr)
+plot(so_rangeFormed ? so_rangeLow : na, "S-ORB Low", color.navy, 1, plot.style_linebr)
+
+plotshape(trendLongCond, "Trend Entry", shape.triangleup, location.belowbar, color.blue, size=size.small)
+plotshape(orbLongCond, "ORB Entry", shape.arrowup, location.belowbar, color.lime, size=size.small)
+plotshape(simpleShortCond, "Short Entry", shape.triangledown, location.abovebar, color.red, size=size.small)
+plotshape(shortOrbCond, "S-ORB Entry", shape.arrowdown, location.abovebar, color.purple, size=size.small)
+
+

@@ -1,0 +1,42 @@
+# Core Ignore Rules
+__pycache__/
+*.py[cod]
+.env
+.venv
+.vscode/
+.idea/
+
+# Artifacts & Data (Global)
+*.html
+*.csv
+*.png
+*.jpg
+*.db
+*.log
+*.txt
+!ES Trend.txt
+
+# Directories to Ignore
+data/
+logs/
+screenshots/
+cache/
+outputs/
+reports/
+gpu_env/
+StrategyPipeline/gpu_env/
+StrategyPipeline/cache/
+StrategyPipeline/outputs/
+StrategyPipeline/reports/
+StrategyPipeline/logs/
+StrategyPipeline/data/
+
+# Large Binaries
+*.exe
+*.dll
+*.iso
+StrategyPipeline/cuda_setup.exe
+StrategyPipeline/nvidia_driver_setup.exe
+
+# Ignore root-level scratchpad scripts (keep StrategyPipeline source)
+/*.py

@@ -1,0 +1,104 @@
+//@version=5
+strategy("Timed VWAP Entry – NQ 1m w/ Long & Short ADX Filters + Distance Cap",
+     overlay=true,
+     default_qty_type=strategy.fixed, default_qty_value=1,
+     commission_type=strategy.commission.cash_per_contract, commission_value=1.5,
+     slippage=1, process_orders_on_close=true)
+ 
+// ——— Inputs ———
+entryHour      = input.int(8,    "Entry Hour (NY)",         minval=0, maxval=23)
+entryMin       = input.int(40,   "Entry Minute (NY)",       minval=0, maxval=59)
+exitHour       = input.int(14,   "Forced Exit Hour (NY)",   minval=0, maxval=23)
+exitMin        = input.int(10,   "Forced Exit Minute (NY)", minval=0, maxval=59)
+
+useMom         = input.bool(true,  "Use Momentum Filter?")
+momLen         = input.int(255,    "Momentum Lookback (bars)", minval=1)
+momThreshLong  = input.float(30.0, "Momentum Threshold (Long)",  step=0.1)
+momThreshShort = input.float(20.0, "Momentum Threshold (Short)", step=0.1)
+
+// ——— ADX filters (side-specific) ———
+useLongAdx     = input.bool(true,  "Use Long-Side ADX Filter?")
+useShortAdx    = input.bool(true,  "Use Short-Side ADX Filter?")
+adxLen         = input.int(14,     "ADX Length",               minval=1)
+adxThreshLong  = input.float(25.0, "ADX Threshold (Long)",     step=0.1)
+adxThreshShort = input.float(25.0, "ADX Threshold (Short)",    step=0.1)
+
+longOnlyMode   = input.bool(false, "Long-Only Mode")
+
+// ——— Pre-Entry Risk Cap (distance to VWAP) ———
+grpCap         = "Pre-Entry Risk Cap"
+useDistATR     = input.bool(true,   "Skip if |Price−VWAP| > k·ATR?", group=grpCap)
+maxDistATR     = input.float(1.25,  "k (ATR multiples)",              group=grpCap, step=0.05)
+useRiskUSD     = input.bool(false,  "Also cap by $ risk to VWAP?",    group=grpCap)
+maxRiskUSD     = input.float(2500,  "Max $ risk to VWAP (1 contract)",group=grpCap, step=50)
+
+// ——— NY-localized time ———
+nyTime = time(timeframe.period, "America/New_York")
+nyHour = hour(nyTime)
+nyMin  = minute(nyTime)
+
+// ——— Indicators ———
+vwapVal = ta.vwap
+momVal  = ta.mom(close, momLen)
+[plusDI, minusDI, adxVal] = ta.dmi(adxLen, adxLen)
+atrVal  = ta.atr(14)
+
+// ——— State ———
+var bool tradedToday = false
+
+// Reset at NY midnight
+if ta.change(time("D", "America/New_York")) != 0
+    tradedToday := false
+
+// ——— Pre-compute distance/risk each bar (so it’s in scope for plotting) ———
+distToVWAP  = math.abs(close - vwapVal)
+distOK_ATR  = not useDistATR or distToVWAP <= maxDistATR * atrVal
+estRiskUSD  = distToVWAP * syminfo.pointvalue   // NQ ~ $20/pt; MNQ ~ $2/pt automatically
+distOK_USD  = not useRiskUSD or estRiskUSD <= maxRiskUSD
+entryRiskOK = distOK_ATR and distOK_USD
+
+// ——— Entry Logic ———
+isEntryBar = not tradedToday and nyHour == entryHour and nyMin == entryMin and barstate.isconfirmed
+if isEntryBar
+    longCond  = close > vwapVal
+    shortCond = close < vwapVal
+
+    // Momentum filters
+    momLongOK  = useMom ? (momVal >  momThreshLong)  : true
+    momShortOK = useMom ? (momVal < -momThreshShort) : true
+
+    // ADX filters: require trend strength AND correct DI dominance
+    longAdxOK  = not useLongAdx  or (adxVal > adxThreshLong  and plusDI  > minusDI)
+    shortAdxOK = not useShortAdx or (adxVal > adxThreshShort and minusDI > plusDI)
+
+    if longCond and momLongOK and longAdxOK and entryRiskOK
+        strategy.entry("Long", strategy.long)
+        tradedToday := true
+    else if not longOnlyMode and shortCond and momShortOK and shortAdxOK and entryRiskOK
+        strategy.entry("Short", strategy.short)
+        tradedToday := true
+
+// ——— Exit Logic ———
+if strategy.position_size > 0 and close < vwapVal and barstate.isconfirmed
+    strategy.close("Long")
+if strategy.position_size < 0 and close > vwapVal and barstate.isconfirmed
+    strategy.close("Short")
+
+// Forced EOD exit
+isExitBar = nyHour == exitHour and nyMin == exitMin and barstate.isconfirmed
+if strategy.position_size != 0 and isExitBar
+    strategy.close_all("EOD Exit")
+
+// ——— Visuals ———
+plot(vwapVal, title="VWAP", color=color.orange, linewidth=2, trackprice=true)
+plot(momVal,  title="Momentum", color=color.blue, linewidth=1)
+hline(0,      title="Zero Line", color=color.gray)
+showAdx = useLongAdx or useShortAdx
+plot(showAdx ? adxVal : na, title="ADX", color=color.purple)
+hline(showAdx ? adxThreshLong  : na, title="ADX Thr (Long)",  color=color.new(color.green, 0), linestyle=hline.style_dotted)
+hline(showAdx ? adxThreshShort : na, title="ADX Thr (Short)", color=color.new(color.red,   0), linestyle=hline.style_dotted)
+
+// Mark blocked entries
+blockedEntry = isEntryBar and not entryRiskOK
+plotshape(blockedEntry, title="Blocked (Too far from VWAP)",
+     style=shape.xcross, color=color.red, size=size.tiny, text="dist cap")
