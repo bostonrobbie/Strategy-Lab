@@ -38,5 +38,4 @@ StrategyPipeline/data/
 StrategyPipeline/cuda_setup.exe
 StrategyPipeline/nvidia_driver_setup.exe
 
-# Ignore root-level scratchpad scripts (keep StrategyPipeline source)
-/*.py
+# /*.py (Removed to allow root scripts)
