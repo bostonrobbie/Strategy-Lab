@@ -8,16 +8,11 @@ from backtesting.optimizer import VectorizedGridSearch
 from examples.nqorb_15m import NqOrb15m
 from backtesting.vector_engine import VectorizedNQORB
 
-def run_experiment(name, param_grid, baseline_sharpe=None):
+def run_experiment(name, param_grid, start_date, end_date, symbol, baseline_sharpe=None):
     print(f"\n[EXPERIMENT] {name}...")
     
     # Setup Data
-    symbol_list = ['NQ']
-    # Use 1 year of data for fast iteration or full history? 
-    # User said "systematically test... make sure legit". 
-    # Let's use a decent chunk, maybe 2020-2023 (post-covid volatility included)
-    start_date = "2020-01-01" 
-    end_date = "2023-12-31"
+    symbol_list = [symbol]
     interval = "15m"
     
     csv_dir = os.path.join(os.getcwd(), 'examples')
@@ -48,7 +43,18 @@ def run_experiment(name, param_grid, baseline_sharpe=None):
     return best_res
 
 if __name__ == "__main__":
-    print("starting Systematic Feature Testing (2020-2023)...")
+    import argparse
+    
+    parser = argparse.ArgumentParser(description="Run NQ ORB Systematic Experiments")
+    parser.add_argument("--start", type=str, default="2020-01-01", help="Start Date (YYYY-MM-DD)")
+    parser.add_argument("--end", type=str, default="2023-12-31", help="End Date (YYYY-MM-DD)")
+    parser.add_argument("--symbol", type=str, default="NQ", help="Symbol to test (NQ, ES)")
+    parser.add_argument("--capital", type=float, default=100000.0, help="Initial Capital")
+    
+    args = parser.parse_args()
+    
+    print(f"Starting Systematic Feature Testing ({args.start} to {args.end}) on {args.symbol}...")
+
     
     # 0. Baseline
     # Fixed params from previous optimization
@@ -62,7 +68,7 @@ if __name__ == "__main__":
     }
     
     print("\n--- BASELINE ---")
-    base_res = run_experiment("Baseline", baseline_grid)
+    base_res = run_experiment("Baseline", baseline_grid, args.start, args.end, args.symbol)
     base_ret = base_res['Total Return']
     
     experiments = [
@@ -121,7 +127,7 @@ if __name__ == "__main__":
     summary.append(base_res)
     
     for exp in experiments:
-        res = run_experiment(exp['name'], exp['grid'])
+        res = run_experiment(exp['name'], exp['grid'], args.start, args.end, args.symbol)
         if res is not None:
             # Calculate Delta
             delta = res['Total Return'] - base_ret
