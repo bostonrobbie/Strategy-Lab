@@ -12,6 +12,7 @@ __pycache__/
 *.png
 *.jpg
 *.db
+!data/*.zip
 *.log
 *.txt
 !ES Trend.txt

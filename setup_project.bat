@@ -29,6 +29,13 @@ if exist "requirements.txt" (
     echo Warning: requirements.txt not found. Skipping dependency install.
 )
 
+REM Extract Data
+echo Checking for compressed data...
+for %%f in (data\*.zip) do (
+    echo Extracting %%f...
+    tar -xf "%%f" -C data
+)
+
 REM Create Directories
 if not exist "data" mkdir data
 if not exist "logs" mkdir logs
