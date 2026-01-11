@@ -39,11 +39,12 @@ class VectorEngine:
     Ideal for GPU acceleration.
     Includes cost modeling (Slippage + Commissions).
     """
-    def __init__(self, strategy: VectorStrategy, initial_capital=100000.0, commission=1.0, slippage=1.0):
+    def __init__(self, strategy: VectorStrategy, initial_capital=100000.0, commission=1.0, slippage=1.0, volatility_factor=0.01):
         self.strategy = strategy
         self.initial_capital = initial_capital
         self.commission_per_unit = commission
         self.slippage_per_unit = slippage
+        self.volatility_factor = volatility_factor
         self.pd = get_dataframe_library()
         self.np = get_array_library()
 
@@ -66,33 +67,36 @@ class VectorEngine:
         # Position is held for the bar AFTER the signal
         pos = signals.shift(1).fillna(0)
         
-        # --- COST MODELING ---
+        # --- COST MODELING (Dynamic Volatility Slippage) ---
         prices = df['Close']
+        highs = df['High']
+        lows = df['Low']
         
-        # Determine Turnover (Trading Activity)
-        # diff(abs) doesn't perfectly capture flip 1 to -1 (turnover 2), but diff() then abs() does.
-        # pos: 0 -> 1 (+1 buy)
-        # pos: 1 -> 0 (-1 sell)
-        # pos: 1 -> -1 (-2 sell)
-        turnover = pos.diff().abs().fillna(0)
+        # Calculate Volatility (Range)
+        # Slippage is likely to be higher when the bar range is large
+        volatility = (highs - lows).abs()
         
-        # Fixed Commission cost per unit traded
-        # Slippage cost: approx value = slippage_points * point_value? 
-        # Here we only know 'slippage per unit' in dollars approx? 
-        # Let's assume passed slippage is in DOLLAR TERMS per unit (Contract).
-        # OR: slippage in ticks? 
-        # Standardize: commission=1.0 (dollars), slippage=1.0 (dollars, e.g. 1 tick NQ=$5)
-        # Actually NQ 1 tick is $5. So slippage=5.0 is 1 tick.
+        # Dynamic Slippage
+        # If slippage_factor is provided (e.g. 0.05 of range), use it.
+        # Otherwise treat self.slippage_per_unit as a fixed dollar amount per trade (fallback)
+        # We will assume self.slippage_per_unit is a 'factor' if < 1.0, else fixed ticks
+        # Actually, let's just make it robust:
+        # Cost = Commission + (Volatility * 0.1) + Fixed_Slippage
+        # Let's assume standard 'slippage_per_unit' is the fixed component (e.g. 1 tick)
+        # And we add a volatility component: 5% of the bar range.
         
-        # Total Cost in Dollars per unit traded
-        cost_per_unit = self.commission_per_unit + self.slippage_per_unit
+        # Cost = Commission + (Volatility * Factor) + Fixed_Slippage
+        # Adjusted to 1% (0.01) based on user feedback for "balanced" realism.
         
-        # Cost as a Percentage of Price
-        # (Cost $ / Price $) = % Cost
-        cost_pct = cost_per_unit / prices
+        vol_slippage = volatility * self.volatility_factor
         
-        # Transaction Costs (Percentage Drag)
-        # turnover * cost_pct
+        # Total Cost per Unit = Fixed Comm + Fixed Slip + Dynamic Vol Slip
+        total_cost_per_unit = self.commission_per_unit + self.slippage_per_unit + vol_slippage
+        
+        # Cost as % of Price
+        cost_pct = total_cost_per_unit / prices
+        
+        # Transaction Costs
         transaction_costs = turnover * cost_pct
         
         # Strategy Returns (Gross)

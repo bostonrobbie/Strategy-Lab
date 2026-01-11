@@ -15,8 +15,26 @@ def run_experiment(name, param_grid, start_date, end_date, symbol, baseline_shar
     symbol_list = [symbol]
     interval = "15m"
     
+    import json
+    
     csv_dir = os.path.join(os.getcwd(), 'examples')
-    # Assuming standard data location logic in SmartDataHandler
+    
+    # Load Config for Commission/Slippage
+    config_path = os.path.join(os.getcwd(), 'StrategyPipeline', 'config.json')
+    with open(config_path, 'r') as f:
+        config = json.load(f)
+        
+    specs = config['data']['instrument_specs'].get(symbol, {})
+    comm_rate = specs.get('commission', 2.05)
+    
+    # Slippage: Base standard. NQ tick=0.25, $20/pt -> $5/tick.
+    # We'll pass 1 tick ($5) as fixed base, plus engine adds dynamic vol.
+    point_val = specs.get('multiplier', 20)
+    tick_sz = specs.get('tick_size', 0.25)
+    tick_val = point_val * tick_sz # $5 for NQ
+    
+    base_slippage = tick_val * 1.0 # 1 tick fixed
+
     
     # Initialize Optimizer
     # We pass the class, but we need to ensure the grid is correct
@@ -26,6 +44,8 @@ def run_experiment(name, param_grid, start_date, end_date, symbol, baseline_shar
         strategy_cls=NqOrb15m, # This is just for metadata, the engine uses mappings
         param_grid=param_grid,
         initial_capital=100000.0,
+        commission=comm_rate,
+        slippage=base_slippage,
         n_jobs=-1
     )
     
