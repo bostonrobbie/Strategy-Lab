@@ -6,9 +6,7 @@
     "data": {
         "search_dirs": [
             "./data",
-            "./examples",
-            "C:/Users/User/Desktop/Portfolio/OHLC/Intra OHLC",
-            "C:/Users/User/Documents/AI/StrategyPipeline/data"
+            "./examples"
         ],
         "default_symbols": [
             "SPY",
