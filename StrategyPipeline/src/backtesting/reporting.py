@@ -80,7 +80,7 @@ class ReportGenerator:
         try:
             with open(pine_path, 'r') as f:
                 self.content.append(f.read())
-        except:
+        except Exception:
             self.content.append("// Error reading Pine Script file")
         self.content.append("```")
 

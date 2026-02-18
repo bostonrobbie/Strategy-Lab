@@ -71,27 +71,47 @@ class SmartDataHandler(DataHandler):
             df.columns = [c.capitalize() for c in df.columns]
             
             # Ensure Date Index
+            # CRITICAL: Preserve ET wall clock times (9:30 AM ET stays 9:30)
+            # which the ORB strategy and all session-time logic depends on.
+            # Our CSV timestamps like "2010-06-02 18:05:00 -04:00" already
+            # represent ET local time with a UTC offset suffix. We strip the
+            # offset and parse the first 19 chars directly (fast path).
+            # Fallback to the slower utc→tz_convert path for other formats.
             date_col = next((c for c in df.columns if c in ['Date', 'Datetime', 'Time']), None)
             if date_col:
-                df[date_col] = pd.to_datetime(df[date_col], utc=True).dt.tz_convert(None)
+                sample = str(df[date_col].iloc[0])
+                # Fast path: timestamps with UTC offset suffix like "2010-06-02 18:05:00 -04:00"
+                # The local time portion (first 19 chars) is already ET wall clock time
+                if len(sample) > 19 and ('+' in sample[19:] or '-' in sample[19:]):
+                    df[date_col] = pd.to_datetime(df[date_col].astype(str).str[:19], format='%Y-%m-%d %H:%M:%S')
+                else:
+                    # Fallback: parse with timezone, convert to ET
+                    raw_dt = pd.to_datetime(df[date_col], utc=True)
+                    df[date_col] = raw_dt.dt.tz_convert('America/New_York').dt.tz_localize(None)
                 df.set_index(date_col, inplace=True)
             
+            # Ensure Volume column exists (some CSVs lack it)
+            if 'Volume' not in df.columns:
+                df['Volume'] = 0.0
+
             # Ensure sorting
             df.sort_index(inplace=True)
             
-            # Remove timezone if exists
+            # Remove timezone if exists (safety net)
+            # Always convert to ET first to preserve wall clock times
             if hasattr(df.index, 'tz_localize'):
                 if df.index.tz is not None:
-                    df.index = df.index.tz_convert(None)
-                else:
-                    df.index = df.index.tz_localize(None)
+                    df.index = df.index.tz_convert('America/New_York').tz_localize(None)
+                # else: already naive (ET wall clock), leave as-is
 
             # --- Resampling Logic ---
             # If current data frequency doesn't match requested interval
             # Note: We assume input data freq can be inferred or specified
             if self.interval and self.interval != '1d':
                 # Map interval like '15m' to pandas freq '15min'
-                freq = self.interval.replace('m', 'min').replace('h', 'H')
+                # Use regex to only replace trailing 'm' (not 'min', 'max', etc.)
+                import re
+                freq = re.sub(r'(\d+)m$', r'\1min', self.interval).replace('h', 'H')
                 
                 # Check current frequency (crude check)
                 if len(df) > 1:
@@ -175,7 +195,7 @@ class SmartDataHandler(DataHandler):
                     df = pd.read_csv(cache_path)
                     monitor.log_data_loading(symbol, "CACHE", True)
                     return df
-                except:
+                except Exception:
                     pass
 
         # 3. Download from yfinance
@@ -216,12 +236,12 @@ class SmartDataHandler(DataHandler):
             index, row = next(self._bar_generators[symbol])
             return Bar(
                 symbol=symbol,
-                timestamp=index, 
+                timestamp=index,
                 open=row['Open'],
                 high=row['High'],
                 low=row['Low'],
                 close=row['Close'],
-                volume=row['Volume']
+                volume=row.get('Volume', 0.0) if hasattr(row, 'get') else (row['Volume'] if 'Volume' in row.index else 0.0)
             )
         except StopIteration:
             return None
@@ -255,6 +275,7 @@ class MemoryDataHandler(DataHandler):
     """
     def __init__(self, symbol_data: Dict[str, pd.DataFrame]):
         self.symbol_data = symbol_data
+        self.symbol_list = list(symbol_data.keys())  # FIX: was missing, breaks Strategy/Portfolio/Engine
         self.latest_symbol_data: Dict[str, List[Bar]] = {s: [] for s in symbol_data.keys()}
         self.continue_backtest = True
         self._bar_generators: Dict[str, Generator] = {s: df.iterrows() for s, df in symbol_data.items()}
@@ -264,19 +285,19 @@ class MemoryDataHandler(DataHandler):
             index, row = next(self._bar_generators[symbol])
             return Bar(
                 symbol=symbol,
-                timestamp=index, 
+                timestamp=index,
                 open=row['Open'],
                 high=row['High'],
                 low=row['Low'],
                 close=row['Close'],
-                volume=row['Volume']
+                volume=row.get('Volume', 0.0) if hasattr(row, 'get') else (row['Volume'] if 'Volume' in row.index else 0.0)
             )
         except StopIteration:
             return None
 
     def update_bars(self) -> bool:
         any_updates = False
-        for symbol in self.symbol_data.keys():
+        for symbol in self.symbol_list:
             bar = self._get_new_bar(symbol)
             if bar is not None:
                 self.latest_symbol_data[symbol].append(bar)

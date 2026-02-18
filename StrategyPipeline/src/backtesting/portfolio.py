@@ -75,7 +75,8 @@ class Portfolio:
         Acts on a SignalEvent to generate an OrderEvent.
         """
         # Simple sizing: 100 shares if not specified
-        qty = event.target_qty if event.target_qty else 100
+        # FIX: Use 'is not None' to correctly handle target_qty=0 (explicit zero)
+        qty = event.target_qty if event.target_qty is not None else 100
         side = OrderSide.BUY if event.signal_type == SignalType.LONG else OrderSide.SELL
         
         if event.signal_type == SignalType.EXIT:
@@ -148,8 +149,16 @@ class Portfolio:
         self.current_positions[event.symbol].update_fill(fill_qty, event.price, event.commission)
         
         # Cash Flow Logic:
-        cost = fill_qty * event.price * multiplier
-        self.current_cash -= (cost + event.commission)
+        # For futures (multiplier > 1), use margin-based accounting:
+        # Only commission impacts cash (PnL flows through position mark-to-market)
+        # For equities (multiplier == 1), use full notional cost
+        is_futures = self.instrument_config.get(event.symbol, {}).get('type', 'EQUITY') == 'FUTURE'
+        if is_futures:
+            # Futures: only commission deducted from cash (margin not modeled as cost)
+            self.current_cash -= event.commission
+        else:
+            cost = fill_qty * event.price * multiplier
+            self.current_cash -= (cost + event.commission)
         
         # Log Trade
         self.trade_log.append({

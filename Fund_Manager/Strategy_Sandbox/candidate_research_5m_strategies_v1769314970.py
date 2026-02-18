@@ -1,0 +1,1 @@
+[Fund Manager Error]: model 'llama3.2' not found (status code: 404)

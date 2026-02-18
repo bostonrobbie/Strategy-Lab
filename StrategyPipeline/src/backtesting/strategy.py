@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import List, Optional, Dict
+from typing import List, Optional, Dict, Any
 from queue import Queue
 from datetime import datetime
 from .schema import SignalEvent, SignalType, Bar
@@ -21,7 +21,8 @@ class Strategy(ABC):
     def __init__(self, bars: DataHandler, events: Queue):
         self.bars = bars       # Access to historical data
         self.events = events   # Queue to push signals to behavior
-        self.symbol_list = bars.symbol_list
+        # FIX: Safely get symbol_list with fallback for any DataHandler that lacks it
+        self.symbol_list = getattr(bars, 'symbol_list', list(getattr(bars, 'symbol_data', {}).keys()))
 
     @abstractmethod
     def calculate_signals(self, event: Bar):

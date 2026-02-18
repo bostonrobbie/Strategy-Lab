@@ -1,8 +1,8 @@
 
-from backtesting.pipeline import ResearchPipeline
-from backtesting.strategies_limit import NqPullbackLimit
+from .pipeline import ResearchPipeline
+from .strategies_limit import NqPullbackLimit
 # import vector strategy or use None if strictly testing Event Logic basics first
-from backtesting.vector_engine import VectorizedNQORB 
+from .vector_engine import VectorizedNQORB 
 from datetime import datetime
 
 # Configuration

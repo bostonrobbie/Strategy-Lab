@@ -8,9 +8,9 @@ from typing import List
 # Ensure we can import modules
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from backtesting.factory import STRATEGY_CATALOG, get_strategy_config
-from backtesting.pipeline import ResearchPipeline
-from backtesting.reporting import ReportGenerator
+from .factory import STRATEGY_CATALOG, get_strategy_config
+from .pipeline import ResearchPipeline
+from .reporting import ReportGenerator
 
 def run_strategy(name: str, symbol: str, start_date: datetime, end_date: datetime, interval: str = '15m'):
     print(f"\n>>> LAUNCHING AUTOMATED PIPELINE FOR: {name.upper()} <<<")
@@ -43,7 +43,7 @@ def run_strategy(name: str, symbol: str, start_date: datetime, end_date: datetim
     # The pipeline.py currently saves to registry but doesn't return the full stats dict from execute().
     # I will trust the console output for now, OR I can fetch the latest run from DB.
     
-    from backtesting.registry import StrategyRegistry
+    from .registry import StrategyRegistry
     reg = StrategyRegistry()
     latest_run = reg.get_leaderboard(limit=1).iloc[0] # Simplistic check
     

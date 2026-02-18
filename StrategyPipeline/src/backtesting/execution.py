@@ -157,22 +157,33 @@ class SimulatedExecutionHandler(ExecutionHandler):
                             else:
                                 fill_price = bar.low
                         filled = True
-                        
+
                     elif order.order_type == OrderType.LIMIT:
                         # Limit Order Logic
                         limit = order.limit_price
                         if order.side == OrderSide.BUY:
                             # Buy Limit: Low must be <= Limit
                             if bar.low <= limit:
-                                # Fill at Limit usually, but if Open < Limit (Gap Down), we get Open!
-                                # Realistic: We get Limit price unless we gap below it.
-                                fill_price = min(limit, bar.open) 
+                                fill_price = min(limit, bar.open)
                                 filled = True
                         else:
                             # Sell Limit: High must be >= Limit
                             if bar.high >= limit:
-                                # Fill at Limit usually, but if Open > Limit (Gap Up), we get Open!
                                 fill_price = max(limit, bar.open)
+                                filled = True
+
+                    elif order.order_type == OrderType.STOP:
+                        # Stop Order Logic (was missing - STOP orders never filled)
+                        stop = order.stop_price
+                        if order.side == OrderSide.BUY:
+                            # Buy Stop: triggers when price rises to stop level
+                            if bar.high >= stop:
+                                fill_price = max(stop, bar.open)
+                                filled = True
+                        else:
+                            # Sell Stop: triggers when price falls to stop level
+                            if bar.low <= stop:
+                                fill_price = min(stop, bar.open)
                                 filled = True
                             
                 if filled:

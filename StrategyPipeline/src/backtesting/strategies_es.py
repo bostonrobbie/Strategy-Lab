@@ -107,7 +107,7 @@ class EsOrGapCombo(Strategy):
             s = np.std(series)
             if s == 0: return 0.5
             return np.log(r / s) / np.log(len(series))
-        except:
+        except Exception:
             return 0.5
 
     def calculate_signals(self, event: Bar):

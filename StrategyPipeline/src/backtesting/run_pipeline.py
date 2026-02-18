@@ -1,7 +1,7 @@
 
-from backtesting.pipeline import ResearchPipeline
-from backtesting.strategies import NqOrb15m
-from backtesting.vector_engine import VectorizedNQORB
+from .pipeline import ResearchPipeline
+from .strategies import NqOrb15m
+from .vector_engine import VectorizedNQORB
 from datetime import datetime
 
 # Configuration

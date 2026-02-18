@@ -10,13 +10,13 @@ import queue
 # Ensure we can import the backtesting package
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from backtesting.strategy import Strategy
-from backtesting.schema import Bar, SignalType
-from backtesting.data import SmartDataHandler
-from backtesting.portfolio import Portfolio
-from backtesting.execution import SimulatedExecutionHandler, FixedCommission
-from backtesting.engine import BacktestEngine
-from backtesting.performance import TearSheet
+from .strategy import Strategy
+from .schema import Bar, SignalType
+from .data import SmartDataHandler
+from .portfolio import Portfolio
+from .execution import SimulatedExecutionHandler, FixedCommission
+from .engine import BacktestEngine
+from .performance import TearSheet
 
 class {strategy_name}(Strategy):
     """

@@ -1,6 +1,9 @@
 from typing import Dict, List
 import pandas as pd
 
+from .statistics import StatisticalSignificance
+
+
 class ValidationSuite:
     """
     Automated Auditor for Trading Strategies.
@@ -20,12 +23,63 @@ class ValidationSuite:
             'errors': []
         }
 
-    def run_basic_checks(self):
+    def run_basic_checks(self, returns=None):
         """Runs single-pass checks available from one backtest run."""
         self._check_sample_size()
         self._check_consistency()
+        if returns is not None:
+            self._check_statistical_significance(returns)
         self._determine_status()
         return self.report
+
+    def _check_statistical_significance(self, returns, alpha=0.05):
+        """
+        Check if Sharpe ratio is statistically significant.
+
+        Args:
+            returns: Array or Series of strategy returns
+            alpha: Significance level (default 0.05 for 95% confidence)
+        """
+        import numpy as np
+
+        if len(returns) < 10:
+            self.report['warnings'].append(
+                "Insufficient data for statistical significance testing."
+            )
+            return
+
+        returns_arr = np.array(returns)
+        sharpe = self.stats.get('Sharpe Ratio', 0)
+
+        # Calculate p-value
+        p_value = StatisticalSignificance.sharpe_pvalue(sharpe, len(returns_arr))
+
+        # Calculate confidence interval
+        sharpe_calc, ci_lower, ci_upper = StatisticalSignificance.sharpe_confidence_interval(
+            returns_arr, confidence=1-alpha
+        )
+
+        passed = p_value < alpha and ci_lower > 0
+
+        check_result = {
+            'name': 'Statistical Significance',
+            'value': f"p={p_value:.4f}, CI=[{ci_lower:.2f}, {ci_upper:.2f}]",
+            'threshold': f"p<{alpha}, CI>0",
+            'passed': passed
+        }
+        self.report['checks'].append(check_result)
+
+        if not passed:
+            if p_value >= alpha:
+                self.report['warnings'].append(
+                    f"Sharpe ratio is NOT statistically significant (p={p_value:.3f} >= {alpha}). "
+                    "Results may be due to random chance."
+                )
+            if ci_lower <= 0:
+                self.report['warnings'].append(
+                    f"Sharpe ratio 95% CI [{ci_lower:.2f}, {ci_upper:.2f}] includes zero. "
+                    "Cannot confidently say strategy has positive edge."
+                )
 
     def _check_sample_size(self, min_trades=30):
         n_trades = len(self.trade_log)
@@ -209,7 +263,9 @@ class MonteCarloValidator:
             # Construct Equity Curve
             equity = np.cumprod(1 + sim_rets)
             peak = np.maximum.accumulate(equity)
-            dd = (equity - peak) / peak
+            # Guard: replace zero peaks with nan to avoid division by zero
+            safe_peak = np.where(peak == 0, np.nan, peak)
+            dd = np.where(np.isnan(safe_peak), 0, (equity - peak) / safe_peak)
             max_dd = np.min(dd)
             sim_dds.append(max_dd)
             

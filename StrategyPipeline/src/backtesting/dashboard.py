@@ -2,6 +2,7 @@
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import pandas as pd
+import numpy as np
 import os
 from typing import Dict, Any
 
@@ -54,7 +55,8 @@ class DashboardGenerator:
             # Assume 'drawdown' col exists or calc it
             if 'drawdown' not in self.equity_curve.columns:
                  peak = self.equity_curve['equity'].cummax()
-                 dd = (self.equity_curve['equity'] - peak) / peak
+                 safe_peak = peak.replace(0, np.nan)
+                 dd = ((self.equity_curve['equity'] - peak) / safe_peak).fillna(0)
                  self.equity_curve['drawdown'] = dd
             
             fig.add_trace(

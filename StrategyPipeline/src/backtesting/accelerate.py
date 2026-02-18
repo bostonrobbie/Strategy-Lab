@@ -81,9 +81,9 @@ def get_dataframe_library():
         try:
             import cudf
             return cudf
-        except:
+        except Exception:
             pass
-    
+
     import pandas
     return pandas
 
@@ -96,9 +96,9 @@ def get_array_library():
         try:
             import cupy
             return cupy
-        except:
+        except Exception:
             pass
-    
+
     import numpy
     return numpy
 

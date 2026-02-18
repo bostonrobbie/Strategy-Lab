@@ -1,0 +1,274 @@
+[
+  {
+    "timestamp": "2026-01-27T08:24:47.400704",
+    "action": "add",
+    "strategy_name": "candidate_research_5m_strategies_v1769520101.py",
+    "data_snapshot": {
+      "metrics": {
+        "sharpe": 0,
+        "return_pct": 0,
+        "max_dd": 0,
+        "profit_factor": 1.0,
+        "win_rate": 0.5,
+        "trade_count": 0
+      },
+      "weight": 1.0
+    }
+  },
+  {
+    "timestamp": "2026-01-27T08:51:00.897108",
+    "action": "add",
+    "strategy_name": "candidate_research_5m_strategies_v1769521846.py",
+    "data_snapshot": {
+      "metrics": {
+        "sharpe": 0,
+        "return_pct": 0,
+        "max_dd": 0,
+        "profit_factor": 1.0,
+        "win_rate": 0.5,
+        "trade_count": 0
+      },
+      "weight": 0.09090909090909091
+    }
+  },
+  {
+    "timestamp": "2026-01-27T09:14:12.514341",
+    "action": "add",
+    "strategy_name": "candidate_research_5m_strategies_v1769523032.py",
+    "data_snapshot": {
+      "metrics": {
+        "sharpe": 0,
+        "return_pct": 0,
+        "max_dd": 0,
+        "profit_factor": 1.0,
+        "win_rate": 0.5,
+        "trade_count": 0
+      },
+      "weight": 0.09090909090909091
+    }
+  },
+  {
+    "timestamp": "2026-01-27T09:50:04.393115",
+    "action": "add",
+    "strategy_name": "candidate_research_5m_strategies_v1769525249.py",
+    "data_snapshot": {
+      "metrics": {
+        "sharpe": 0,
+        "return_pct": 0,
+        "max_dd": 0,
+        "profit_factor": 1.0,
+        "win_rate": 0.5,
+        "trade_count": 0
+      },
+      "weight": 0.09090909090909093
+    }
+  },
+  {
+    "timestamp": "2026-01-27T10:10:33.223288",
+    "action": "add",
+    "strategy_name": "candidate_research_5m_strategies_v1769526425.py",
+    "data_snapshot": {
+      "metrics": {
+        "sharpe": 0,
+        "return_pct": 0,
+        "max_dd": 0,
+        "profit_factor": 1.0,
+        "win_rate": 0.5,
+        "trade_count": 0
+      },
+      "weight": 0.09090909090909091
+    }
+  },
+  {
+    "timestamp": "2026-01-27T10:35:14.063354",
+    "action": "add",
+    "strategy_name": "candidate_research_5m_strategies_v1769527746.py",
+    "data_snapshot": {
+      "metrics": {
+        "sharpe": 0,
+        "return_pct": 0,
+        "max_dd": 0,
+        "profit_factor": 1.0,
+        "win_rate": 0.5,
+        "trade_count": 0
+      },
+      "weight": 0.09090909090909093
+    }
+  },
+  {
+    "timestamp": "2026-01-27T18:12:02.494346",
+    "action": "add",
+    "strategy_name": "candidate_research_5m_strategies_v1769555503.py",
+    "data_snapshot": {
+      "metrics": {
+        "sharpe": 0,
+        "return_pct": 0,
+        "max_dd": 0,
+        "profit_factor": 1.0,
+        "win_rate": 0.5,
+        "trade_count": 0
+      },
+      "weight": 0.09090909090909091
+    }
+  },
+  {
+    "timestamp": "2026-01-27T18:32:11.085531",
+    "action": "add",
+    "strategy_name": "candidate_research_5m_strategies_v1769556715.py",
+    "data_snapshot": {
+      "metrics": {
+        "sharpe": 0,
+        "return_pct": 0,
+        "max_dd": 0,
+        "profit_factor": 1.0,
+        "win_rate": 0.5,
+        "trade_count": 0
+      },
+      "weight": 0.09090909090909093
+    }
+  },
+  {
+    "timestamp": "2026-01-27T18:38:54.782888",
+    "action": "add",
+    "strategy_name": "candidate_research_5m_strategies_v1769557121.py",
+    "data_snapshot": {
+      "metrics": {
+        "sharpe": 0,
+        "return_pct": 0,
+        "max_dd": 0,
+        "profit_factor": 1.0,
+        "win_rate": 0.5,
+        "trade_count": 0
+      },
+      "weight": 0.09090909090909091
+    }
+  },
+  {
+    "timestamp": "2026-01-27T19:26:07.429595",
+    "action": "add",
+    "strategy_name": "candidate_research_5m_strategies_v1769559952.py",
+    "data_snapshot": {
+      "metrics": {
+        "sharpe": 0,
+        "return_pct": 0,
+        "max_dd": 0,
+        "profit_factor": 1.0,
+        "win_rate": 0.5,
+        "trade_count": 0
+      },
+      "weight": 0.09090909090909093
+    }
+  },
+  {
+    "timestamp": "2026-01-27T19:53:26.795108",
+    "action": "add",
+    "strategy_name": "candidate_research_5m_strategies_v1769561587.py",
+    "data_snapshot": {
+      "metrics": {
+        "sharpe": 0,
+        "return_pct": 0,
+        "max_dd": 0,
+        "profit_factor": 1.0,
+        "win_rate": 0.5,
+        "trade_count": 0
+      },
+      "weight": 0.09090909090909091
+    }
+  },
+  {
+    "timestamp": "2026-01-27T20:44:33.742333",
+    "action": "add",
+    "strategy_name": "candidate_research_5m_strategies_v1769564641.py",
+    "data_snapshot": {
+      "metrics": {
+        "sharpe": 0,
+        "return_pct": 0,
+        "max_dd": 0,
+        "profit_factor": 1.0,
+        "win_rate": 0.5,
+        "trade_count": 0
+      },
+      "weight": 0.09090909090909091
+    }
+  },
+  {
+    "timestamp": "2026-01-27T21:19:42.150167",
+    "action": "add",
+    "strategy_name": "candidate_research_5m_strategies_v1769566765.py",
+    "data_snapshot": {
+      "metrics": {
+        "sharpe": 0,
+        "return_pct": 0,
+        "max_dd": 0,
+        "profit_factor": 1.0,
+        "win_rate": 0.5,
+        "trade_count": 0
+      },
+      "weight": 0.09090909090909093
+    }
+  },
+  {
+    "timestamp": "2026-01-27T21:45:57.953788",
+    "action": "add",
+    "strategy_name": "candidate_research_5m_strategies_v1769568339.py",
+    "data_snapshot": {
+      "metrics": {
+        "sharpe": 0,
+        "return_pct": 0,
+        "max_dd": 0,
+        "profit_factor": 1.0,
+        "win_rate": 0.5,
+        "trade_count": 0
+      },
+      "weight": 0.09090909090909091
+    }
+  },
+  {
+    "timestamp": "2026-01-27T21:53:00.986291",
+    "action": "add",
+    "strategy_name": "candidate_research_5m_strategies_v1769568759.py",
+    "data_snapshot": {
+      "metrics": {
+        "sharpe": 0,
+        "return_pct": 0,
+        "max_dd": 0,
+        "profit_factor": 1.0,
+        "win_rate": 0.5,
+        "trade_count": 0
+      },
+      "weight": 0.09090909090909091
+    }
+  },
+  {
+    "timestamp": "2026-01-27T22:13:37.372865",
+    "action": "add",
+    "strategy_name": "candidate_research_5m_strategies_v1769570000.py",
+    "data_snapshot": {
+      "metrics": {
+        "sharpe": 0,
+        "return_pct": 0,
+        "max_dd": 0,
+        "profit_factor": 1.0,
+        "win_rate": 0.5,
+        "trade_count": 0
+      },
+      "weight": 0.09090909090909093
+    }
+  },
+  {
+    "timestamp": "2026-01-27T22:54:12.238184",
+    "action": "add",
+    "strategy_name": "candidate_research_5m_strategies_v1769572434.py",
+    "data_snapshot": {
+      "metrics": {
+        "sharpe": 0,
+        "return_pct": 0,
+        "max_dd": 0,
+        "profit_factor": 1.0,
+        "win_rate": 0.5,
+        "trade_count": 0
+      },
+      "weight": 0.09090909090909091
+    }
+  }
+]

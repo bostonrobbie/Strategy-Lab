@@ -3,6 +3,15 @@ import os
 import glob
 import warnings
 
+# --- 0. Windows Unicode Fix (Issue #8) ---
+# Windows console can't display emojis/unicode by default
+if sys.platform == 'win32':
+    try:
+        sys.stdout.reconfigure(encoding='utf-8')
+        sys.stderr.reconfigure(encoding='utf-8')
+    except (AttributeError, OSError):
+        pass
+
 # --- 1. Path Configuration ---
 # Ensure 'src' is in python path regardless of where script is run
 current_dir = os.path.dirname(os.path.abspath(__file__)) # src/backtesting

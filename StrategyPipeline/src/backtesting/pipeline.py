@@ -20,7 +20,15 @@ from .advisor import StrategyAdvisor
 # from .pine_generator import PineScriptGenerator
 from .skeptic import StrategySkeptic
 from .dashboard import DashboardGenerator
-from .vector_engine import VectorEngine, VectorizedNQORB
+# NOTE: Removed duplicate 'from .vector_engine import ...' that was here
+from .statistics import analyze_strategy_significance
+from .attribution import analyze_trades
+from .wfo_analytics import analyze_wfo_results
+from .insights import generate_insights, InsightsEngine, InsightsDashboard
+from .decision_agent import ValidationDecisionAgent, DecisionContext, Decision
+from .code_review_agent import CodeReviewAgent
+from .param_agent import ParameterAgent
+from .logic_agent import LogicAgent
 
 class ResearchPipeline:
     """
@@ -78,7 +86,7 @@ class ResearchPipeline:
         )
         # Verify data exists
         for sym in self.symbol_list:
-            if not self.data_handler.symbol_data.get(sym) is not None:
+            if self.data_handler.symbol_data.get(sym) is None:
                 raise ValueError(f"No data found for {sym}")
         print("    Data Loaded Successfully.")
 
@@ -373,6 +381,27 @@ class ResearchPipeline:
             stats = self.run_robustness_checks(portfolio, clean_params)
             final_stats.update(stats)
 
+        # Generate Insights Report with AI Agents
+        print("\n[5] Generating Strategy Insights...")
+        try:
+            # Find strategy file path for code review
+            import inspect
+            strategy_file = None
+            try:
+                strategy_file = inspect.getfile(self.strategy_cls)
+            except (TypeError, OSError):
+                pass
+
+            insights, ai_decision = self._generate_insights(
+                final_stats,
+                portfolio if not wfo else None,
+                best_params=best_params,
+                strategy_file=strategy_file
+            )
+            final_stats['_ai_decision'] = ai_decision
+        except Exception as e:
+            print(f"    [Insights] Could not generate: {e}")
+
         # Archive
         self.registry.save_run(
             self.strategy_name,
@@ -383,4 +412,113 @@ class ResearchPipeline:
             (self.start_date, self.end_date),
             "Unified Pipeline Run"
         )
-        print("\n[5] Run Complete & Archived.")
+        print("\n[6] Run Complete & Archived.")
+
+    def _generate_insights(self, stats: Dict, portfolio: Portfolio = None,
+                           best_params: Dict = None, strategy_file: str = None):
+        """Generate comprehensive insights report with AI agent integration."""
+
+        # Prepare attribution data if portfolio available
+        attribution = None
+        significance = None
+        wfo_analytics = None
+        ai_decision = None
+        code_review = None
+
+        # Statistical significance from stored analysis
+        if '_significance_analysis' in stats:
+            significance = stats['_significance_analysis']
+
+        # Trade attribution
+        if portfolio and portfolio.trade_log:
+            sym = self.symbol_list[0]
+            if sym in self.data_handler.symbol_data:
+                df = self.data_handler.symbol_data[sym]
+
+                # Get regime series
+                try:
+                    regime_series = MarketRegimeDetector().get_regime_series(df)
+                except Exception:
+                    regime_series = None
+
+                try:
+                    attribution = analyze_trades(
+                        portfolio.trade_log,
+                        df,
+                        regime_series
+                    )
+                except Exception as e:
+                    print(f"    [Attribution] Could not analyze: {e}")
+
+        # WFO analytics from stats
+        if 'WFO_Details' in stats:
+            try:
+                wfo_df = pd.DataFrame(stats['WFO_Details'])
+                wfo_analytics = analyze_wfo_results(wfo_df)
+            except Exception:
+                pass
+
+        # AI Decision Agent
+        if self.config.get('decision_agent', {}).get('enabled', False):
+            print("    [AI] Running Decision Agent...")
+            try:
+                decision_agent = ValidationDecisionAgent(self.config)
+                context = DecisionContext.from_stats(
+                    stats,
+                    self.strategy_name,
+                    self.symbol_list[0],
+                    best_params or {}
+                )
+                result = decision_agent.evaluate(context)
+                ai_decision = result.to_dict()
+                print(f"    [AI] Decision: {result.decision.value} (confidence: {result.confidence:.0%})")
+                print(f"    [AI] Reasoning: {result.reasoning}")
+            except Exception as e:
+                print(f"    [AI] Decision Agent failed: {e}")
+
+        # Code Review Agent
+        if self.config.get('code_review_agent', {}).get('enabled', False) and strategy_file:
+            print("    [AI] Running Code Review...")
+            try:
+                review_agent = CodeReviewAgent(self.config)
+                review_result = review_agent.review_strategy(strategy_file)
+                code_review = {
+                    'passed': review_result.passed,
+                    'issues': [
+                        {
+                            'severity': i.severity.value,
+                            'category': i.category,
+                            'message': i.message,
+                            'line_number': i.line_number,
+                            'suggestion': i.suggestion,
+                        }
+                        for i in review_result.issues
+                    ],
+                    'review_time_ms': review_result.review_time_ms,
+                }
+                status = "PASSED" if review_result.passed else "FAILED"
+                print(f"    [AI] Code Review: {status} ({review_result.critical_count} critical, {review_result.warning_count} warnings)")
+            except Exception as e:
+                print(f"    [AI] Code Review failed: {e}")
+
+        # Generate insights
+        regime_stats = stats.get('regime_stats', {})
+
+        output_path = f"outputs/{self.strategy_name}_insights"
+        os.makedirs("outputs", exist_ok=True)
+
+        insights = generate_insights(
+            stats=stats,
+            attribution=attribution,
+            wfo_analytics=wfo_analytics,
+            stat_significance=significance,
+            regime_stats=regime_stats,
+            ai_decision=ai_decision,
+            code_review=code_review,
+            output_path=output_path,
+            print_console=True
+        )
+
+        print(f"    Insights saved to: {output_path}.html, {output_path}.md")
+
+        return insights, ai_decision

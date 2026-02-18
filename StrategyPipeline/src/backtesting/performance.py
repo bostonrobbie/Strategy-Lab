@@ -7,19 +7,28 @@ import base64
 import webbrowser
 import os
 from .regime import MarketRegimeDetector
+from .statistics import StatisticalSignificance, BootstrapInference, analyze_strategy_significance
 
 def create_sharpe_ratio(returns, periods=252):
-    return np.sqrt(periods) * (np.mean(returns)) / np.std(returns)
+    std = np.std(returns)
+    if std == 0 or np.isnan(std):
+        return 0.0
+    return np.sqrt(periods) * (np.mean(returns)) / std
 
 def create_sortino_ratio(returns, periods=252):
     neg_returns = returns[returns < 0]
     if len(neg_returns) < 1:
         return 0.0
-    return np.sqrt(periods) * (np.mean(returns)) / np.std(neg_returns)
+    neg_std = np.std(neg_returns)
+    if neg_std == 0 or np.isnan(neg_std):
+        return 0.0
+    return np.sqrt(periods) * (np.mean(returns)) / neg_std
 
 def create_drawdowns(equity_curve: pd.DataFrame):
     hwm = equity_curve['equity'].cummax()
-    drawdown = (equity_curve['equity'] - hwm) / hwm
+    # Guard against zero hwm (degenerate case)
+    safe_hwm = hwm.replace(0, np.nan)
+    drawdown = ((equity_curve['equity'] - hwm) / safe_hwm).fillna(0)
     max_drawdown = drawdown.min()
     max_duration = (drawdown < 0).astype(int).groupby(drawdown.eq(0).cumsum()).cumsum().max()
     return drawdown, max_drawdown, max_duration
@@ -92,6 +101,21 @@ class TearSheet:
             'VaR (99%)': calculate_var(returns, 0.99),
             'Tail Ratio': calculate_tail_ratio(returns)
         }
+
+        # Statistical Significance Analysis
+        if len(returns) > 5:
+            try:
+                sig_analysis = analyze_strategy_significance(returns.values)
+                stats['Sharpe SE'] = sig_analysis.get('sharpe_se', 0)
+                stats['Sharpe CI Lower'] = sig_analysis.get('sharpe_ci_lower', 0)
+                stats['Sharpe CI Upper'] = sig_analysis.get('sharpe_ci_upper', 0)
+                stats['Sharpe P-Value'] = sig_analysis.get('sharpe_pvalue', 1.0)
+                stats['Sharpe Significant'] = sig_analysis.get('sharpe_significant', False)
+                stats['Min Track Record Days'] = sig_analysis.get('min_track_record_days', 0)
+                stats['_significance_analysis'] = sig_analysis  # Store full analysis for insights
+            except Exception as e:
+                # Graceful fallback if statistics module has issues
+                pass
         
         # Trade level metrics
         if self.portfolio.trade_log:
@@ -106,7 +130,6 @@ class TearSheet:
             # Let's see if we can derive Profit Factor from returns.
             pos_rets = returns[returns > 0]
             neg_rets = returns[returns < 0]
-            profit_factor = pos_rets.sum() / abs(neg_rets.sum()) if len(neg_rets) > 0 and neg_rets.sum() != 0 else 0.0
             profit_factor = pos_rets.sum() / abs(neg_rets.sum()) if len(neg_rets) > 0 and neg_rets.sum() != 0 else 0.0
             stats['Profit Factor'] = profit_factor
             
@@ -154,6 +177,21 @@ class TearSheet:
         print("-" * 50)
         print(f"Ending Equity:     ${stats['Ending Equity']:,.2f}")
         print("-" * 50)
+
+        # Statistical Significance
+        if 'Sharpe P-Value' in stats:
+            print("STATISTICAL SIGNIFICANCE")
+            print("-" * 50)
+            ci_lower = stats.get('Sharpe CI Lower', 0)
+            ci_upper = stats.get('Sharpe CI Upper', 0)
+            p_val = stats.get('Sharpe P-Value', 1.0)
+            sig = "YES" if stats.get('Sharpe Significant', False) else "NO"
+            print(f"Sharpe 95% CI:     [{ci_lower:.2f}, {ci_upper:.2f}]")
+            print(f"P-Value:           {p_val:.4f}")
+            print(f"Significant:       {sig}")
+            if ci_lower < 0 < ci_upper:
+                print("  [NOTE] CI crosses zero - results may be noise")
+            print("-" * 50)
 
     def run_monte_carlo(self, n_sims=1000):
         """
@@ -307,7 +345,7 @@ class TearSheet:
         # Auto-Open
         try:
             webbrowser.open('file://' + os.path.realpath("backtest_report.html"))
-        except:
+        except Exception:
             pass
 
     def _generate_plots(self, df, sim_curves=None, benchmark_series=None):
@@ -362,12 +400,12 @@ class TearSheet:
             if 'p5' in key or 'p50' in key or 'p95' in key:
                  return f"{float(value):,.2f}"
             return f"{float(value):.2%}"
-        except:
+        except (TypeError, ValueError):
             return str(value)
 
     def _get_color_class(self, value):
         try:
             val = float(value)
             return 'positive' if val >= 0 else 'negative'
-        except:
+        except (TypeError, ValueError):
             return ''

@@ -2,9 +2,9 @@ import os
 import sys
 import pandas as pd
 from datetime import datetime
-from backtesting.accelerate import get_gpu_info
-from backtesting.registry import StrategyRegistry
-from backtesting.data import SmartDataHandler
+from .accelerate import get_gpu_info
+from .registry import StrategyRegistry
+from .data import SmartDataHandler
 
 class PreFlightCheck:
     """

@@ -11,8 +11,8 @@ from .portfolio import Portfolio
 from .execution import SimulatedExecutionHandler, FixedCommission
 from .engine import BacktestEngine
 from .strategy import Strategy
+from .wfo_analytics import WFOAnalytics, analyze_wfo_results
 
-# --- Worker function for parallel execution (must be at module level for pickling) ---
 # --- Worker function for parallel execution (must be at module level for pickling) ---
 from .data import MemoryDataHandler
 
@@ -176,7 +176,7 @@ class WalkForwardOptimizer:
         self.vector_engine_cls = vector_engine_cls
         self.vector_strategy_cls = vector_strategy_cls
         
-        from backtesting.data import SmartDataHandler
+        from .data import SmartDataHandler
         self.data_handler_cls = SmartDataHandler
 
     def run(self):
@@ -254,7 +254,9 @@ class WalkForwardOptimizer:
                 'test_end': test_end,
                 'params': clean_params,
                 'train_return': best_params.get('Total Return', 0),
-                'test_return': 0.0
+                'test_return': 0.0,
+                'train_trades': 0,
+                'test_trades': 0
             }
             
             eq_curve = pd.DataFrame(portfolio.equity_curve)
@@ -263,11 +265,12 @@ class WalkForwardOptimizer:
                  end_eq = eq_curve['equity'].iloc[-1]
                  seg_ret = (end_eq / start_eq) - 1.0
                  segment_res['test_return'] = seg_ret
-                 
+                 segment_res['test_trades'] = len(portfolio.trade_log)
+
                  if 'returns' not in eq_curve:
                       eq_curve['returns'] = eq_curve['equity'].pct_change().fillna(0)
                  stitched_equity.append(eq_curve['returns'])
-            
+
             wfo_results.append(segment_res)
             
             # MOVE FORWARD (Rolling via Step)
@@ -275,7 +278,36 @@ class WalkForwardOptimizer:
             if test_end >= end_date:
                 break
                 
-        return pd.DataFrame(wfo_results), stitched_equity
+        wfo_df = pd.DataFrame(wfo_results)
+
+        # Run WFO Analytics
+        if not wfo_df.empty:
+            try:
+                wfo_analysis = analyze_wfo_results(wfo_df)
+                print("\n" + "="*50)
+                print("WFO ANALYTICS SUMMARY")
+                print("="*50)
+                summary = wfo_analysis.get('wfo_summary', {})
+                if summary:
+                    print(f"Health Score: {summary.get('health_score', 0):.0f}/100")
+                    print(f"Verdict: {summary.get('overall_verdict', 'N/A')}")
+
+                    divergence = summary.get('divergence', {})
+                    if divergence:
+                        print(f"IS/OOS Degradation: {divergence.get('degradation_pct', 0):.1f}%")
+
+                    stability = summary.get('stability', {})
+                    if stability:
+                        print(f"Parameter Stability: {stability.get('overall_stability', 0):.2f}")
+
+                    consistency = summary.get('consistency', {})
+                    if consistency:
+                        print(f"OOS Consistency: {consistency.get('consistency', 0):.0%}")
+                print("="*50)
+            except Exception as e:
+                print(f"[WFO Analytics] Could not run: {e}")
+
+        return wfo_df, stitched_equity
 
 
 # --- Helper for Parallel Vectorized Backtest ---

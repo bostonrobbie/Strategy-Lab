@@ -1,0 +1,18 @@
+[
+    {
+        "name": "BASELINE_STRATEGY (Buy & Hold SPY)",
+        "sharpe": 0.8,
+        "return": 10.0,
+        "logic_summary": "Simple buy and hold benchmark. Target to beat: Sharpe > 1.0, MaxDD < 25%",
+        "timestamp": "baseline_v2"
+    },
+    {
+        "name": "ADX_Trend_Following_v1",
+        "sharpe": -1.35,
+        "return": -39.14,
+        "logic_summary": "EMA crossover with ADX filter (>25) and ATR-based trailing stops. Tested 2022-2024.",
+        "timestamp": "2026-01-27",
+        "status": "research",
+        "notes": "Needs optimization for volatile/whipsaw markets"
+    }
+]

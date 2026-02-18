@@ -4,6 +4,7 @@ from abc import ABC, abstractmethod
 from datetime import time
 from .accelerate import get_dataframe_library, get_array_library
 from .monitor import PipelineMonitor
+from .type_utils import ensure_pandas_series, normalize_returns
 
 monitor = PipelineMonitor()
 
@@ -39,12 +40,13 @@ class VectorEngine:
     Ideal for GPU acceleration.
     Includes cost modeling (Slippage + Commissions).
     """
-    def __init__(self, strategy: VectorStrategy, initial_capital=100000.0, commission=1.0, slippage=1.0, volatility_factor=0.01):
+    def __init__(self, strategy: VectorStrategy, initial_capital=100000.0, commission=1.0, slippage=1.0, volatility_factor=0.01, point_value=20.0):
         self.strategy = strategy
         self.initial_capital = initial_capital
         self.commission_per_unit = commission
         self.slippage_per_unit = slippage
         self.volatility_factor = volatility_factor
+        self.point_value = point_value  # NQ: 1 point = $20 (E-mini)
         self.pd = get_dataframe_library()
         self.np = get_array_library()
 
@@ -57,48 +59,52 @@ class VectorEngine:
         
         # 2. Calculate Returns
         # We assume execution on NEXT OPEN (shift signals by 1)
-        if 'Close' not in df.columns and 'close' in df.columns:
-            df.rename(columns={'close': 'Close'}, inplace=True)
-            
-        # Returns from Open to Close or Close to Close? 
+        # Normalize column names to capitalized form
+        col_map = {}
+        for col in df.columns:
+            lower = col.lower()
+            if lower == 'close' and col != 'Close': col_map[col] = 'Close'
+            elif lower == 'high' and col != 'High': col_map[col] = 'High'
+            elif lower == 'low' and col != 'Low': col_map[col] = 'Low'
+            elif lower == 'open' and col != 'Open': col_map[col] = 'Open'
+            elif lower == 'volume' and col != 'Volume': col_map[col] = 'Volume'
+        if col_map:
+            df = df.rename(columns=col_map)
+
+        # Returns from Open to Close or Close to Close?
         # Standard: Close to Close returns applied to position held at shift(1)
         returns = df['Close'].pct_change().fillna(0)
-        
+
         # Position is held for the bar AFTER the signal
         pos = signals.shift(1).fillna(0)
-        
-        # --- COST MODELING (Dynamic Volatility Slippage) ---
+
+        # --- COST MODELING (Futures-Aware) ---
+        # For futures: costs are per-contract, not per-share.
+        # Convert to % of notional: notional = price * point_value
+        # E.g., NQ at 20000 with point_value=20 → notional = $400K
+        # Commission $2.06 → 2.06/400000 = 0.000515% per side
         prices = df['Close']
-        highs = df['High']
-        lows = df['Low']
-        
-        # Calculate Volatility (Range)
-        # Slippage is likely to be higher when the bar range is large
+        highs = df['High'] if 'High' in df.columns else prices
+        lows = df['Low'] if 'Low' in df.columns else prices
+
+        # Dynamic slippage: small % of bar range for volatile periods
         volatility = (highs - lows).abs()
-        
-        # Dynamic Slippage
-        # If slippage_factor is provided (e.g. 0.05 of range), use it.
-        # Otherwise treat self.slippage_per_unit as a fixed dollar amount per trade (fallback)
-        # We will assume self.slippage_per_unit is a 'factor' if < 1.0, else fixed ticks
-        # Actually, let's just make it robust:
-        # Cost = Commission + (Volatility * 0.1) + Fixed_Slippage
-        # Let's assume standard 'slippage_per_unit' is the fixed component (e.g. 1 tick)
-        # And we add a volatility component: 5% of the bar range.
-        
-        # Cost = Commission + (Volatility * Factor) + Fixed_Slippage
-        # Adjusted to 1% (0.01) based on user feedback for "balanced" realism.
-        
         vol_slippage = volatility * self.volatility_factor
-        
-        # Total Cost per Unit = Fixed Comm + Fixed Slip + Dynamic Vol Slip
-        total_cost_per_unit = self.commission_per_unit + self.slippage_per_unit + vol_slippage
-        
-        # Cost as % of Price
-        cost_pct = total_cost_per_unit / prices
-        
+
+        # Total dollar cost per trade = commission + slippage + vol-dependent slippage
+        total_cost_dollars = self.commission_per_unit + self.slippage_per_unit + vol_slippage
+
+        # Convert to % of notional value (price * point_value)
+        safe_prices = prices.replace(0, np.nan).ffill().fillna(1.0)
+        notional = safe_prices * self.point_value  # e.g. 20000 * 20 = $400K
+        cost_pct = total_cost_dollars / notional
+
+        # Turnover (position changes)
+        turnover = pos.diff().abs().fillna(0)
+
         # Transaction Costs
         transaction_costs = turnover * cost_pct
-        
+
         # Strategy Returns (Gross)
         strat_returns = pos * returns
         
@@ -107,13 +113,16 @@ class VectorEngine:
         
         # cumulative equity
         equity_curve = self.initial_capital * (1 + net_returns).cumprod()
-        
-        return {
+
+        # Normalize all return values to pandas Series to ensure consistent types
+        # This handles mixed pandas/cuDF/numpy environments
+        result = {
             'equity_curve': equity_curve,
             'signals': signals,
             'returns': net_returns,
             'turnover': turnover
         }
+        return normalize_returns(result, index=df.index)
 
 class VectorizedMA(VectorStrategy):
     """
@@ -126,12 +135,15 @@ class VectorizedMA(VectorStrategy):
 
     def generate_signals(self, df):
         pd_lib = get_dataframe_library()
-        short_ma = df['Close'].rolling(window=self.short_window).mean()
-        long_ma = df['Close'].rolling(window=self.long_window).mean()
-        
+        close = df['Close'] if 'Close' in df.columns else df['close']
+        short_ma = close.rolling(window=self.short_window).mean()
+        long_ma = close.rolling(window=self.long_window).mean()
+
         signals = pd_lib.Series(0, index=df.index)
-        signals[short_ma > long_ma] = 1
-        signals[short_ma < long_ma] = 0 
+        signals[short_ma > long_ma] = 1   # Long when fast > slow
+        signals[short_ma < long_ma] = -1   # Short when fast < slow
+        # Stay flat during warmup period (NaN moving averages)
+        signals[long_ma.isna()] = 0
         return signals
 
 class VectorizedNQORB(VectorStrategy):
@@ -168,7 +180,7 @@ class VectorizedNQORB(VectorStrategy):
         self.ts_atr_mult = float(ts_atr_mult)
 
     def generate_signals(self, df):
-        from src.backtesting import ta
+        from . import ta
 
         pd_lib = get_dataframe_library()
         
@@ -185,8 +197,8 @@ class VectorizedNQORB(VectorStrategy):
 
         # Calculate Base Indicators
         # Using custom ta which returns Series
-        ema = ta.ema(df['close'], length=self.ema_filter).fillna(0).values
-        atr = ta.atr(df['high'], df['low'], df['close'], length=self.atr_filter).fillna(0).values
+        ema = ta.ema(df['close'], length=self.ema_filter).fillna(0).values.astype(np.float64)
+        atr = ta.atr(df['high'], df['low'], df['close'], length=self.atr_filter).fillna(0).values.astype(np.float64)
 
         # --- Phase 2: Advanced Indicators ---
         # 1. HTF Trend (Daily MA)
@@ -243,16 +255,16 @@ class VectorizedNQORB(VectorStrategy):
         # Convert Time logic to integers for faster comparison
         # We'll use minute of day: 9:30 = 9*60 + 30 = 570
         times = df.index.hour * 60 + df.index.minute
+
+        # Create trading day IDs for proper session detection.
+        # NQ trades nearly 24h, so times[i] < times[i-1] is unreliable.
+        # Instead, use calendar date to detect new trading sessions.
         dates = df.index.date
-        
-        # Create a unique integer ID for each day to detect day changes fast
-        # (Assuming dates are sorted)
-        # We can map unique dates to ints or just use change detection
-        # Actually, simpler: pass day_changed boolean array
-        # day_changed[i] = dates[i] != dates[i-1]
-        
-        # For Numba, we need comparable arrays. 
-        # Converting dates to int64 timestamps (ns)
+        # Convert dates to integer day IDs that Numba can compare
+        # Use ordinal day number (integer)
+        day_ids = np.array([d.toordinal() for d in dates], dtype=np.int64)
+
+        # For backward compat
         timestamps = df.index.values.astype(np.int64)
         
         # Parse Strategy Times
@@ -265,15 +277,15 @@ class VectorizedNQORB(VectorStrategy):
         # Exit time typically 15:45
         exit_min = 15 * 60 + 45
         
-        # extract numpy arrays
-        closes = df['close'].values
-        highs = df['high'].values
-        lows = df['low'].values
+        # extract numpy arrays (enforce float64 for Numba JIT compatibility)
+        closes = df['close'].values.astype(np.float64)
+        highs = df['high'].values.astype(np.float64)
+        lows = df['low'].values.astype(np.float64)
         
         # Run Numba Core
         signals = _numba_orb_logic(
-            timestamps, times.values, closes, highs, lows, ema, atr, 
-            start_min, end_min, exit_min, 
+            day_ids, times.values, closes, highs, lows, ema, atr,
+            start_min, end_min, exit_min,
             self.atr_max_mult, self.sl_atr_mult, self.tp_atr_mult,
             self.use_htf, daily_ma,
             self.use_rvol, rvol, self.rvol_thresh,
@@ -285,8 +297,8 @@ class VectorizedNQORB(VectorStrategy):
         return pd.Series(signals, index=df.index)
 
 @jit(nopython=True)
-def _numba_orb_logic(timestamps, times, closes, highs, lows, ema, atr, 
-                     start_min, end_min, exit_min, 
+def _numba_orb_logic(day_ids, times, closes, highs, lows, ema, atr,
+                     start_min, end_min, exit_min,
                      atr_max_mult, sl_mult, tp_mult,
                      use_htf, daily_ma,
                      use_rvol, rvol, rvol_thresh,
@@ -295,37 +307,25 @@ def _numba_orb_logic(timestamps, times, closes, highs, lows, ema, atr,
                      use_ts, ts_mult):
     n = len(closes)
     signals = np.zeros(n, dtype=np.int32)
-    
+
     # State Variables
     orb_high = -1.0
     orb_low = 1e9
-    
+
     # Session State
     traded_today = False
-    in_pos = 0 # 1 long, -1 short
+    in_pos = 0  # 1 long, -1 short
     entry_price = 0.0
     sl_price = 0.0
     tp_price = 0.0
-    
+
     # We iterate chronologically
     for i in range(1, n):
-        # 1. Detect New Day
-        # Timestamp change big enough or just check if time went backward (new day)
-        # Simple check: times[i] < times[i-1] usually means new day, 
-        # BUT if data has gaps it might not.
-        # Check timestamps roughly > 1 day gap or use day change logic?
-        # Actually, let's track previous "day" via timestamp / 86400e9 (ns per day)
-        # or simplified: reset if time < start_min
-        
         t = times[i]
-        
-        # Reset Day State
-        # If time is exactly start_min, we treat it as start of ORB? 
-        # NQ opens 9:30. ORB is 9:30-9:45. 
-        # We need to capture H/L during [start_min, end_min).
-        
-        # Reset Logic: If we see a time < previous time, it's a new day
-        if times[i] < times[i-1]:
+
+        # 1. Detect New Trading Day using calendar date ordinals
+        # This correctly handles 24h NQ futures sessions
+        if day_ids[i] != day_ids[i - 1]:
             orb_high = -1.0
             orb_low = 1e9
             traded_today = False
